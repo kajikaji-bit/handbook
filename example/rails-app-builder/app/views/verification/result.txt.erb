@@ -1,0 +1,6 @@
+<% if @operation.succeeded? %><%= @operation.result.fetch("message") %>
+<% if @operation.url %>URL: <%= @operation.url %>
+<% end %>生成先: <%= @operation.result.fetch("app") %>
+<% else %>処理に失敗しました。まだ完了していません。
+<%= @operation.result.fetch("error", "実行結果を確認してください") %>
+<% end %>

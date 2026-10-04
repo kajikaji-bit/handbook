@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+require_relative "../lib/operation_runner"
+OperationRunner.run("run") do |options, app, result|
+  port = Integer(options.fetch("port", "3000"))
+  probe = TCPServer.new("127.0.0.1",port); probe.close
+  log = File.join(app,"log/handbook-server.log")
+  pid = nil
+  Bundler.with_unbundled_env do
+    File.open(log,"a") { |f| pid = Process.spawn(OperationRunner.clean_env,"bundle","exec","rails","server","-b","127.0.0.1","-p",port.to_s,chdir: app,out:f,err:f,pgroup:true,unsetenv_others:true) }
+  end
+  Process.detach(pid)
+  begin
+    base = "http://127.0.0.1:#{port}"
+    design = JSON.parse(File.read(File.join(app,"handbook-design.json")))
+    path = '/' + design.fetch("resources").first.fetch("name").underscore.pluralize
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC)+40
+    loop do
+      Process.kill(0,pid)
+      begin
+        response = Net::HTTP.get_response(URI(base+path))
+        break if response.is_a?(Net::HTTPSuccess)
+      rescue SystemCallError, IOError
+      end
+      raise "起動確認がタイムアウトしました。ログ: #{log}" if Process.clock_gettime(Process::CLOCK_MONOTONIC)>deadline
+      sleep 0.2
+    end
+    info = {pid:pid,base_url:base,url:base+path,log:log}
+    File.write(File.join(app,"tmp/handbook-server.json"),JSON.pretty_generate(info))
+    result.merge!(info).merge!(message:"アプリケーションを起動しました。")
+  rescue StandardError
+    Process.kill("TERM",pid) rescue nil
+    raise
+  end
+end

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+app_dir=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
+export PI_CODING_AGENT_DIR="$app_dir/config/pi"
+exec pi --provider handbook --model rails-app-builder --tools bash --no-extensions --no-skills --no-prompt-templates --no-session "$@"

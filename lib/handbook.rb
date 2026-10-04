@@ -1,0 +1,18 @@
+# frozen_string_literal: true
+
+require "json"
+require "securerandom"
+require "time"
+require "rack"
+require_relative "handbook/reply"
+require_relative "handbook/conversation"
+require_relative "handbook/server"
+require_relative "handbook/contexts"
+require_relative "handbook/controller"
+require_relative "handbook/string_matcher"
+require_relative "handbook/application"
+require_relative "handbook/jev_client"
+require_relative "handbook/jev_context_selector"
+require_relative "handbook/open_router_client"
+require_relative "handbook/generated_view"
+require_relative "handbook/template"

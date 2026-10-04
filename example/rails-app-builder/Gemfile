@@ -1,0 +1,6 @@
+source "https://rubygems.org"
+
+gem "handbook", path: "../.."
+gem "puma", "~> 8.0"
+gem "rackup", "~> 2.3"
+gem "json_schemer", "~> 2.5"

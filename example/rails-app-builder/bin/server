@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+app_dir=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
+config_env=${HANDBOOK_ENV_FILE:-$HOME/.env}
+if [ -f "$config_env" ]; then
+  set -a
+  source "$config_env"
+  set +a
+fi
+export BUNDLE_GEMFILE="$app_dir/Gemfile"
+exec bundle exec rackup "$app_dir/config.ru" --server puma --host 127.0.0.1 --port "${HANDBOOK_PORT:-9393}"

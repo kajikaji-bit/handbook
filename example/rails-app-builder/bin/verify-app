@@ -1,0 +1,11 @@
+#!/usr/bin/env ruby
+require_relative "../lib/operation_runner"
+OperationRunner.run("verify") do |options, app, result|
+  evidence = File.join(app,"tmp/handbook-verification")
+  FileUtils.mkdir_p(evidence)
+  log = File.join(evidence,"browser.log")
+  OperationRunner.command(["node",File.expand_path("../lib/verify-browser.cjs",__dir__),app,options.fetch("url"),evidence],cwd: File.expand_path("../../..",__dir__),log:log)
+  report = JSON.parse(File.read(File.join(evidence,"report.json")))
+  raise "画面検証が未完了です" unless report.fetch("success")
+  result.merge!(report.transform_keys(&:to_sym)).merge!(message:"アプリケーションを作成し、要求された操作を画面で確認しました。",log:log,evidence:evidence)
+end

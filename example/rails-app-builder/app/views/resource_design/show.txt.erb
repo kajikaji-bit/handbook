@@ -1,0 +1,7 @@
+リソース設計
+<% @resource_design.resources.each do |resource| %>リソース: <%= resource.name %>（<%= resource.label %>）
+属性:
+<% resource.attributes.each do |attribute| %>  <%= attribute.fetch("name") %>: <%= {"string" => "文字列", "text" => "長文", "integer" => "整数", "bigint" => "大きな整数", "float" => "浮動小数点数", "decimal" => "小数", "boolean" => "真偽値", "date" => "日付", "datetime" => "日時", "time" => "時刻"}.fetch(attribute.fetch("type")) %>
+<% end %>操作:
+<% resource.operations.each do |operation| %>  <%= {"create" => "作成", "index" => "一覧", "show" => "詳細", "update" => "更新", "destroy" => "削除"}.fetch(operation) %>
+<% end %><% end %>

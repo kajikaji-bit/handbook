@@ -1,0 +1,105 @@
+#!/usr/bin/env ruby
+require_relative "../lib/operation_runner"
+OperationRunner.run("build") do |options, app, result|
+  raise "生成先が既に存在します。上書きしません: #{app}" if File.exist?(app) || File.symlink?(app)
+  design = ResourceDesign.from_json(options.fetch("design-json"))
+  log = app + ".build.log"
+  result[:log] = log
+  OperationRunner.command(["rails", "_8.1.4_", "new", app, "--minimal", "--skip-git", "--skip-bundle", "--skip-javascript", "--skip-asset-pipeline", "--skip-bootsnap", "--skip-dev-gems", "--skip-docker", "--skip-ci", "--skip-kamal", "--skip-rubocop", "--skip-brakeman", "--skip-bundler-audit", "--skip-thruster", "--skip-system-test"], cwd: File.dirname(app), log: log)
+  File.write(File.join(app, "Gemfile"), "source \"https://rubygems.org\"\ngem \"rails\", \"8.1.4\"\ngem \"sqlite3\", \">= 2.1\"\ngem \"puma\", \">= 5.0\"\n".gsub('\\"','"'))
+  File.write(File.join(app, ".gitignore"), "/.env*\n/config/master.key\n/config/credentials/*.key\n/log/*\n/tmp/*\n/storage/*\n/.bundle/\n")
+  OperationRunner.command(["bundle", "install", "--local"], cwd: app, log: log)
+  File.write(File.join(app, "handbook-design.json"), JSON.pretty_generate(design.data))
+  routes = []
+  paths = []
+  inflections = {}
+  design.resources.each do |resource|
+    fields = resource.attributes.map { |field| "#{field.fetch('name')}:#{field.fetch('type')}" }
+    OperationRunner.command(["bundle", "exec", "rails", "generate", "scaffold", resource.name, *fields, "--no-test-framework", "--skip-jbuilder"], cwd: app, log: log)
+    singular = resource.name.underscore
+    plural = singular.pluralize
+    paths << "/#{plural}"
+    inflections[resource.name] = { singular: singular, plural: plural }
+    operations = resource.operations
+    actions = operations.dup
+    actions << "new" if actions.include?("create")
+    actions << "edit" if actions.include?("update")
+    routes << "  resources :#{plural}, only: #{actions.map(&:to_sym).inspect}"
+    fields = resource.attributes.map { |f| f.fetch("name").to_sym }
+    controller = <<~RUBY
+      class #{resource.name.pluralize}Controller < ApplicationController
+        before_action :set_record, only: [:show, :edit, :update, :destroy]
+        def index
+          @records = #{resource.name}.all
+        end
+        def show; end
+        def new
+          @record = #{resource.name}.new
+        end
+        def edit; end
+        def create
+          @record = #{resource.name}.new(record_params)
+          if @record.save
+            redirect_to #{operations.include?("show") ? "@record" : (operations.include?("index") ? "#{plural}_path" : "new_#{singular}_path")}
+          else
+            render :new, status: :unprocessable_entity
+          end
+        end
+        def update
+          if @record.update(record_params)
+            redirect_to #{operations.include?("show") ? "@record" : (operations.include?("index") ? "#{plural}_path" : "edit_#{singular}_path(@record)")}
+          else
+            render :edit, status: :unprocessable_entity
+          end
+        end
+        def destroy
+          @record.destroy!
+          redirect_to #{operations.include?("index") ? "#{plural}_path" : 'root_path'}, status: :see_other
+        end
+        private
+        def set_record
+          @record = #{resource.name}.find(params[:id])
+        end
+        def record_params
+          params.require(:#{singular}).permit(*#{fields.inspect})
+        end
+      end
+    RUBY
+    File.write(File.join(app, "app/controllers/#{plural}_controller.rb"), controller)
+    views = File.join(app, "app/views", plural)
+    label = CGI.escapeHTML(resource.label)
+    form = "<%= form_with model: @record do |form| %>\n"
+    resource.attributes.each do |attribute|
+      field = attribute.fetch("name")
+      type = attribute.fetch("type")
+      helper = {"text"=>"text_area", "boolean"=>"check_box", "date"=>"date_field", "datetime"=>"datetime_local_field", "time"=>"time_field", "integer"=>"number_field", "bigint"=>"number_field", "float"=>"number_field", "decimal"=>"number_field"}.fetch(type,"text_field")
+      extra = %w[float decimal].include?(type) ? ", step: :any" : ""
+      form << "<div><%= form.label :#{field} %><%= form.#{helper} :#{field}#{extra} %></div>\n"
+    end
+    form << '<%= form.submit "保存" %><% end %>'
+    File.write(File.join(views,"_form.html.erb"),form)
+    File.write(File.join(views,"new.html.erb"),"<h1>#{label}を作成</h1><%= render 'form' %>")
+    File.write(File.join(views,"edit.html.erb"),"<h1>#{label}を更新</h1><%= render 'form' %>")
+    display = resource.attributes.map { |f| "<p>#{f['name']}: <%= record.#{f['name']} %></p>" }.join("\n")
+    links = []
+    links << "<%= link_to '詳細', #{singular}_path(record) %>" if operations.include?("show")
+    links << "<%= link_to '更新', edit_#{singular}_path(record) %>" if operations.include?("update")
+    links << "<%= button_to '削除', #{singular}_path(record), method: :delete %>" if operations.include?("destroy")
+    content = "<h1>#{label}の一覧</h1>\n"
+    content << "<%= link_to '作成', new_#{singular}_path %>\n" if operations.include?("create")
+    content << "<% @records.each do |record| %><article id=\"record_<%= record.id %>\">#{display}#{links.join(' ')} </article><% end %>"
+    File.write(File.join(views,"index.html.erb"),content)
+    show = "<h1>#{label}の詳細</h1><% record = @record %>#{display}"
+    show << "<%= link_to '一覧', #{plural}_path %>" if operations.include?("index")
+    File.write(File.join(views,"show.html.erb"),show)
+  end
+  File.write(File.join(app,"handbook-paths.json"),JSON.pretty_generate(inflections))
+  first = design.resources.first
+  first_plural = first.name.underscore.pluralize
+  root_action = first.operations.include?("index") ? "index" : (first.operations.include?("create") ? "new" : nil)
+  routes << "  root '#{first_plural}##{root_action}'" if root_action
+  File.write(File.join(app,"config/routes.rb"),"Rails.application.routes.draw do\n#{routes.join("\n")}\nend\n")
+  File.write(File.join(app,"app/views/layouts/application.html.erb"),'<!doctype html><html><head><meta charset="utf-8"><title>Application</title><%= csrf_meta_tags %></head><body><%= yield %></body></html>')
+  OperationRunner.command(["bundle","exec","rails","db:prepare"],cwd: app,log: log)
+  result.merge!(resources: design.data.fetch("resources"), paths: paths, message: "アプリケーションを生成し、データベースを準備しました。")
+end
