@@ -1,0 +1,6 @@
+/config/pi/auth.json
+/config/pi/models-store.json
+/config/pi/sessions/
+/config/pi/settings.json
+*.log
+/config/pi/bin/

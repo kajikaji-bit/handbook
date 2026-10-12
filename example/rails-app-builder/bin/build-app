@@ -1,0 +1,36 @@
+#!/usr/bin/env ruby
+require_relative "../lib/operation_runner"
+
+ACTIONS = {
+  "index" => "  def index\n    render json: %{model}.all\n  end\n",
+  "show" => "  def show\n    render json: %{model}.find(params[:id])\n  end\n",
+  "create" => "  def create\n    record = %{model}.new(record_params)\n    return render(json: record.errors, status: :unprocessable_entity) unless record.save\n    render json: record, status: :created\n  end\n",
+  "update" => "  def update\n    record = %{model}.find(params[:id])\n    return render(json: record.errors, status: :unprocessable_entity) unless record.update(record_params)\n    render json: record\n  end\n",
+  "destroy" => "  def destroy\n    %{model}.find(params[:id]).destroy!\n    head :no_content\n  end\n"
+}.freeze
+
+OperationRunner.run("build") do |options, app, result|
+  raise "構築先が既に存在します。上書きしません: #{app}" if File.exist?(app) || File.symlink?(app)
+  design = ResourceDesign.from_json(options.fetch("design-json"))
+  log = app + ".build.log"
+  result[:log] = log
+  OperationRunner.command(["rails", "_8.1.4_", "new", app, "--api", "--minimal", "--skip-git", "--skip-bundle", "--skip-docker", "--skip-ci", "--skip-kamal", "--skip-rubocop", "--skip-brakeman", "--skip-bundler-audit", "--skip-thruster", "--skip-test"], cwd: File.dirname(app), log: log)
+  File.write(File.join(app, "Gemfile"), "source \"https://rubygems.org\"\ngem \"rails\", \"8.1.4\"\ngem \"sqlite3\", \">= 2.1\"\ngem \"puma\", \">= 5.0\"\n")
+  File.write(File.join(app, ".gitignore"), "/.env*\n/config/master.key\n/config/credentials/*.key\n/log/*\n/tmp/*\n/storage/*\n/.bundle/\n")
+  OperationRunner.command(["bundle", "install", "--local"], cwd: app, log: log)
+  File.write(File.join(app, "handbook-design.json"), JSON.pretty_generate(design.data))
+  routes = design.resources.map do |resource|
+    fields = resource.attributes.map { |field| "#{field.fetch('name')}:#{field.fetch('type')}" }
+    OperationRunner.command(["bundle", "exec", "rails", "generate", "model", resource.name, *fields, "--no-test-framework"], cwd: app, log: log)
+    singular = resource.name.underscore
+    plural = singular.pluralize
+    permitted = resource.attributes.map { |field| field.fetch("name").to_sym }
+    actions = resource.operations.map { |operation| format(ACTIONS.fetch(operation), model: resource.name) }.join("\n")
+    params = resource.operations.intersect?(%w[create update]) ? "\n  private\n\n  def record_params\n    params.require(:#{singular}).permit(*#{permitted.inspect})\n  end\n" : ""
+    File.write(File.join(app, "app/controllers/#{plural}_controller.rb"), "class #{resource.name.pluralize}Controller < ApplicationController\n#{actions}#{params}end\n")
+    "  resources :#{plural}, only: #{resource.operations.map(&:to_sym).inspect}"
+  end
+  File.write(File.join(app, "config/routes.rb"), "Rails.application.routes.draw do\n#{routes.join("\n")}\nend\n")
+  OperationRunner.command(["bundle", "exec", "rails", "db:prepare"], cwd: app, log: log)
+  result.merge!(resources: design.data.fetch("resources"), message: "API モードのアプリケーションを構築し、データベースを準備しました。")
+end

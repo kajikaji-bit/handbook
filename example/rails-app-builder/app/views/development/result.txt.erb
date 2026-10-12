@@ -1,0 +1,5 @@
+<% if @build.succeeded? %>アプリケーションを構築しました。
+構築先: <%= @build.result.fetch("app") %>
+<% else %>構築に失敗しました。要求はまだ満たせていません。
+<%= @build.result.fetch("error", "コマンドの結果を確認してください") %>
+<% end %>

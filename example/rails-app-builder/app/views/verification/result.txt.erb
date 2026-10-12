@@ -1,0 +1,5 @@
+<% if @verification.succeeded? %>検証項目をすべて満たしました。
+<% else %>検証項目を満たせていません。要求はまだ満たせていません。
+<% if @verification.result["error"] %><%= @verification.result["error"] %>
+<% end %><% end %><% @verification.item_results.each do |item| %>- <%= item.fetch("name") %>: <%= item["passed"] ? "合格" : "不合格" %>（ステータス <%= item["status"] %>）
+<% end %>

@@ -1,0 +1,3 @@
+受け付けた検証項目
+<% @verification_items.to_a.each do |item| %>- <%= item.name %>: <%= item.request.fetch("method") %> <%= item.request.fetch("path") %> → <%= item.expect.fetch("status") %>
+<% end %>

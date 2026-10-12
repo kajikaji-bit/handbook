@@ -1,0 +1,32 @@
+#!/usr/bin/env ruby
+require_relative "../lib/operation_runner"
+
+def includes_expected?(actual, expected)
+  case expected
+  when Hash
+    return actual.any? { |element| includes_expected?(element, expected) } if actual.is_a?(Array)
+    actual.is_a?(Hash) && expected.all? { |key, value| actual.key?(key) && includes_expected?(actual[key], value) }
+  else
+    actual == expected
+  end
+end
+
+OperationRunner.run("verify") do |options, app, result|
+  base = URI(options.fetch("url"))
+  items = JSON.parse(options.fetch("items-json"))
+  results = Net::HTTP.start(base.host, base.port) do |http|
+    items.map do |item|
+      request = item.fetch("request")
+      klass = Net::HTTP.const_get(request.fetch("method").capitalize)
+      message = klass.new(request.fetch("path"), "Content-Type" => "application/json", "Accept" => "application/json")
+      message.body = JSON.generate(request.fetch("body")) unless request.fetch("body").empty?
+      response = http.request(message)
+      body = response.body.to_s.empty? ? {} : (JSON.parse(response.body) rescue response.body)
+      expect = item.fetch("expect")
+      passed = response.code.to_i == expect.fetch("status") && includes_expected?(body, expect.fetch("body"))
+      { name: item.fetch("name"), status: response.code.to_i, passed: passed }
+    end
+  end
+  result.merge!(items: results, message: "検証項目どおりに API へリクエストを送りました。")
+  raise "検証項目を満たしていません" unless results.all? { |item| item[:passed] }
+end

@@ -1,0 +1,4 @@
+受け付けた要件
+<% {"機能" => @system_requirement.functions, "品質" => @system_requirement.qualities, "制約" => @system_requirement.constraints}.each do |label, statements| %><% next if statements.empty? %><%= label %>:
+<% statements.each do |statement| %>- <%= statement %>
+<% end %><% end %>
